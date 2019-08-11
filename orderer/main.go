@@ -66,16 +66,36 @@ func main() {
 	// "start" command
 	case start.FullCommand():
 		logger.Infof("Starting %s", metadata.GetVersionInfo())
+
+		// log configuration
 		conf := config.Load()
+
+		// initialize log system
 		initializeLoggingLevel(conf)
+
+		// initialize profile, monitor tool
 		initializeProfilingService(conf)
+
+		// initialize grpc server
 		grpcServer := initializeGrpcServer(conf)
+
+		// load msp certificate
 		initializeLocalMsp(conf)
+
+		// using msp certificate to create a signer instance
 		signer := localmsp.NewSigner()
+
+		// initialize multi-chain manager
 		manager := initializeMultiChainManager(conf, signer)
+
+		// create a server instance
 		server := NewServer(manager, signer)
+
+		// bind server + realize service
 		ab.RegisterAtomicBroadcastServer(grpcServer.Server(), server)
 		logger.Info("Beginning to serve requests")
+
+		// start service
 		grpcServer.Start()
 	// "version" command
 	case version.FullCommand():
@@ -205,9 +225,12 @@ func initializeLocalMsp(conf *config.TopLevel) {
 }
 
 func initializeMultiChainManager(conf *config.TopLevel, signer crypto.LocalSigner) multichain.Manager {
+	// create ledger factory to store temporary block, three method:  file, json, memory
 	lf, _ := createLedgerFactory(conf)
 	// Are we bootstrapping?
+	// if chain exist
 	if len(lf.ChainIDs()) == 0 {
+		// bootstrap
 		initializeBootstrapChannel(conf, lf)
 	} else {
 		logger.Info("Not bootstrapping because of existing chains")
