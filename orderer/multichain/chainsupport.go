@@ -69,11 +69,11 @@ type Chain interface {
 
 // ConsenterSupport provides the resources available to a Consenter implementation
 type ConsenterSupport interface {
-	crypto.LocalSigner
-	BlockCutter() blockcutter.Receiver
-	SharedConfig() config.Orderer
-	CreateNextBlock(messages []*cb.Envelope) *cb.Block
-	WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block
+	crypto.LocalSigner // sign
+	BlockCutter() blockcutter.Receiver // block cutter
+	SharedConfig() config.Orderer // configuration
+	CreateNextBlock(messages []*cb.Envelope) *cb.Block // pack the cut transaction into block
+	WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block // write block
 	ChainID() string // ChainID returns the chain ID this specific consenter instance is associated with
 	Height() uint64  // Returns the number of blocks on the chain this specific consenter instance is associated with
 }
@@ -84,32 +84,33 @@ type ChainSupport interface {
 	// limitation https://github.com/golang/go/issues/6977 the methods must be explicitly declared
 
 	// PolicyManager returns the current policy manager as specified by the chain config
-	PolicyManager() policies.Manager
+	PolicyManager() policies.Manager // endorse policy
 
 	// Reader returns the chain Reader for the chain
-	Reader() ledger.Reader
+	Reader() ledger.Reader // ledger reader
 
 	// Errored returns whether the backing consenter has errored
-	Errored() <-chan struct{}
+	Errored() <-chan struct{} // is there any error happens during the process
 
-	broadcast.Support
-	ConsenterSupport
+	broadcast.Support // process the transaction input
+	ConsenterSupport // consense help method
 
 	// Sequence returns the current config sequence number
 	Sequence() uint64
 
+	// transaction change
 	// ProposeConfigUpdate applies a CONFIG_UPDATE to an existing config to produce a *cb.ConfigEnvelope
 	ProposeConfigUpdate(env *cb.Envelope) (*cb.ConfigEnvelope, error)
 }
 
 type chainSupport struct {
-	*ledgerResources
-	chain         Chain
-	cutter        blockcutter.Receiver
-	filters       *filter.RuleSet
-	signer        crypto.LocalSigner
-	lastConfig    uint64
-	lastConfigSeq uint64
+	*ledgerResources // configuration and ledger read/write object
+	chain         Chain // chian interface
+	cutter        blockcutter.Receiver // block cutter
+	filters       *filter.RuleSet // filter
+	signer        crypto.LocalSigner //sign
+	lastConfig    uint64 // which height contains the newest configuration
+	lastConfigSeq uint64 // sequence number 
 }
 
 func newChainSupport(

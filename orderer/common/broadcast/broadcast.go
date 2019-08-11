@@ -76,6 +76,7 @@ func NewHandlerImpl(sm SupportManager) Handler {
 func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 	logger.Debugf("Starting new broadcast loop")
 	for {
+		// receive
 		msg, err := srv.Recv()
 		if err == io.EOF {
 			logger.Debugf("Received EOF, hangup")
@@ -86,6 +87,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 			return err
 		}
 
+		// check
 		payload, err := utils.UnmarshalPayload(msg.Payload)
 		if err != nil {
 			logger.Warningf("Received malformed message, dropping connection: %s", err)
@@ -103,6 +105,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 			return srv.Send(&ab.BroadcastResponse{Status: cb.Status_BAD_REQUEST})
 		}
 
+		// second check if transaction is a config transaction
 		if chdr.Type == int32(cb.HeaderType_CONFIG_UPDATE) {
 			logger.Debugf("Preprocessing CONFIG_UPDATE")
 			msg, err = bh.sm.Process(msg)
@@ -129,6 +132,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 			}
 		}
 
+		// get a chainsupport object
 		support, ok := bh.sm.GetChain(chdr.ChannelId)
 		if !ok {
 			logger.Warningf("Rejecting broadcast because channel %s was not found", chdr.ChannelId)
@@ -137,6 +141,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 
 		logger.Debugf("[channel: %s] Broadcast is filtering message of type %s", chdr.ChannelId, cb.HeaderType_name[chdr.Type])
 
+		// first filter
 		// Normal transaction for existing chain
 		_, filterErr := support.Filters().Apply(msg)
 
@@ -145,6 +150,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 			return srv.Send(&ab.BroadcastResponse{Status: cb.Status_BAD_REQUEST})
 		}
 
+		// enter queue
 		if !support.Enqueue(msg) {
 			return srv.Send(&ab.BroadcastResponse{Status: cb.Status_SERVICE_UNAVAILABLE})
 		}
@@ -153,6 +159,7 @@ func (bh *handlerImpl) Handle(srv ab.AtomicBroadcast_BroadcastServer) error {
 			logger.Debugf("[channel: %s] Broadcast has successfully enqueued message of type %s", chdr.ChannelId, cb.HeaderType_name[chdr.Type])
 		}
 
+		// process succeed
 		err = srv.Send(&ab.BroadcastResponse{Status: cb.Status_SUCCESS})
 		if err != nil {
 			logger.Warningf("[channel: %s] Error sending to stream: %s", chdr.ChannelId, err)

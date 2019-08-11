@@ -235,10 +235,12 @@ func initializeMultiChainManager(conf *config.TopLevel, signer crypto.LocalSigne
 	} else {
 		logger.Info("Not bootstrapping because of existing chains")
 	}
-
+	
+	// create consense mechanism instance
 	consenters := make(map[string]multichain.Consenter)
 	consenters["solo"] = solo.New()
 	consenters["kafka"] = kafka.New(conf.Kafka.TLS, conf.Kafka.Retry, conf.Kafka.Version)
 
+	// create consense manager
 	return multichain.NewManagerImpl(lf, consenters, signer)
 }

@@ -31,16 +31,20 @@ const (
 // Manager coordinates the creation and access of chains
 type Manager interface {
 	// GetChain retrieves the chain support for a chain (and whether it exists)
+	// get chain object with chainID(name)
 	GetChain(chainID string) (ChainSupport, bool)
 
 	// SystemChannelID returns the channel ID for the system channel
+	// get system channel to generate other channel
 	SystemChannelID() string
 
 	// NewChannelConfig returns a bare bones configuration ready for channel
 	// creation request to be applied on top of it
+	// generate/update channel configuration
 	NewChannelConfig(envConfigUpdate *cb.Envelope) (configtxapi.Manager, error)
 }
 
+// config resources
 type configResources struct {
 	configtxapi.Manager
 }
@@ -53,20 +57,23 @@ func (cr *configResources) SharedConfig() config.Orderer {
 	return oc
 }
 
+// ledger resources
 type ledgerResources struct {
 	*configResources
 	ledger ledger.ReadWriter
 }
 
+// realization of the manager
 type multiLedger struct {
-	chains          map[string]*chainSupport
-	consenters      map[string]Consenter
-	ledgerFactory   ledger.Factory
-	signer          crypto.LocalSigner
-	systemChannelID string
-	systemChannel   *chainSupport
+	chains          map[string]*chainSupport // multi-chain object
+	consenters      map[string]Consenter // consense mechanism
+	ledgerFactory   ledger.Factory //ledger read/write factory
+	signer          crypto.LocalSigner // signer object
+	systemChannelID string // system channel name
+	systemChannel   *chainSupport // system channel object
 }
 
+// get the newest config transaction
 func getConfigTx(reader ledger.Reader) *cb.Envelope {
 	lastBlock := ledger.GetBlock(reader, reader.Height()-1)
 	index, err := utils.GetLastConfigIndexFromBlock(lastBlock)
@@ -89,20 +96,24 @@ func NewManagerImpl(ledgerFactory ledger.Factory, consenters map[string]Consente
 		consenters:    consenters,
 		signer:        signer,
 	}
-
+	// read local stored chains' ID
 	existingChains := ledgerFactory.ChainIDs()
 	for _, chainID := range existingChains {
+		// create a ledger read/write instance
 		rl, err := ledgerFactory.GetOrCreate(chainID)
 		if err != nil {
 			logger.Panicf("Ledger factory reported chainID %s but could not retrieve it: %s", chainID, err)
 		}
+		// get the newest config transaction
 		configTx := getConfigTx(rl)
 		if configTx == nil {
 			logger.Panic("Programming error, configTx should never be nil here")
 		}
+		// bind config transaction to read/write object
 		ledgerResources := ml.newLedgerResources(configTx)
 		chainID := ledgerResources.ChainID()
-
+		
+		// check if system channel have the right to create other channel
 		if _, ok := ledgerResources.ConsortiumsConfig(); ok {
 			if ml.systemChannelID != "" {
 				logger.Panicf("There appear to be two system chains %s and %s", ml.systemChannelID, chainID)
@@ -116,7 +127,7 @@ func NewManagerImpl(ledgerFactory ledger.Factory, consenters map[string]Consente
 			ml.systemChannelID = chainID
 			ml.systemChannel = chain
 			// We delay starting this chain, as it might try to copy and replace the chains map via newChain before the map is fully built
-			defer chain.start()
+			defer chain.start() // start system chain until other chain start
 		} else {
 			logger.Debugf("Starting chain: %s", chainID)
 			chain := newChainSupport(createStandardFilters(ledgerResources),
@@ -146,6 +157,7 @@ func (ml *multiLedger) GetChain(chainID string) (ChainSupport, bool) {
 	return cs, ok
 }
 
+// create a ledger resource object
 func (ml *multiLedger) newLedgerResources(configTx *cb.Envelope) *ledgerResources {
 	initializer := configtx.NewInitializer()
 	configManager, err := configtx.NewManagerImpl(configTx, initializer, nil)
@@ -166,6 +178,7 @@ func (ml *multiLedger) newLedgerResources(configTx *cb.Envelope) *ledgerResource
 	}
 }
 
+// create a new chain base on the configuration
 func (ml *multiLedger) newChain(configtx *cb.Envelope) {
 	ledgerResources := ml.newLedgerResources(configtx)
 	ledgerResources.ledger.Append(ledger.CreateNextBlock(ledgerResources.ledger, []*cb.Envelope{configtx}))
@@ -191,6 +204,7 @@ func (ml *multiLedger) channelsCount() int {
 	return len(ml.chains)
 }
 
+// new channel configuration
 func (ml *multiLedger) NewChannelConfig(envConfigUpdate *cb.Envelope) (configtxapi.Manager, error) {
 	configUpdatePayload, err := utils.UnmarshalPayload(envConfigUpdate.Payload)
 	if err != nil {
